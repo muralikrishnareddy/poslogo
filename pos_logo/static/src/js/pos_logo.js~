@@ -1,0 +1,325 @@
+odoo.define('pos_logo.pos_logo', function (require) {
+"use strict";
+
+var PosBaseWidget = require('point_of_sale.BaseWidget');
+
+
+var _t = core._t;
+var QWeb = core.qweb;
+    
+    var ImageWidget = PosBaseWidget.extend({
+    template: 'ImageWidget',
+    init: function(parent, options) {alert('sdsd');
+        this._super(parent, options);
+        var $image = self.$('#image');
+            $image.attr("src",'/web/image?model=pos.config&field=image&id='+this.pos.config.id);
+            $image.css( { marginLeft : "5px", marginTop : "3px", width:'60px', 'border-radius':'3px' } );
+        
+            var $time = self.$('#timeSpan');
+            $time.text("testing");
+            $time.css( { color : "#DDD", fontSize:'20px', marginLeft:'15px', fontStyle:'italic', verticalAlign:'100%' } );
+    },
+    });
+var Chrome = PosBaseWidget.extend({
+    template: 'Chrome',
+    init: function() { 
+        var self = this;
+        this._super(arguments[0],{});
+
+        this.started  = new $.Deferred(); // resolves when DOM is online
+        this.ready    = new $.Deferred(); // resolves when the whole GUI has been loaded
+
+        this.pos = new models.PosModel(this.session,{chrome:this});
+        this.gui = new gui.Gui({pos: this.pos, chrome: this});
+        this.chrome = this; // So that chrome's childs have chrome set automatically
+        this.pos.gui = this.gui;
+
+        this.logo_click_time  = 0;
+        this.logo_click_count = 0;
+
+        this.widget = {};   // contains references to subwidgets instances
+
+        this.cleanup_dom();
+
+        this.pos.ready.done(function(){
+            self.build_chrome();
+            self.build_widgets();
+            self.disable_rubberbanding();
+            self.disable_backpace_back();
+            self.ready.resolve();
+            self.loading_hide();
+            self.replace_crashmanager();
+            self.pos.push_order();
+            alert('sdsd');
+        }).fail(function(err){   // error when loading models data from the backend
+            self.loading_error(err);
+        });
+    },
+
+    cleanup_dom:  function() {
+        // remove default webclient handlers that induce click delay
+        $(document).off();
+        $(window).off();
+        $('html').off();
+        $('body').off();
+        $(this.$el).parent().off();
+        $('document').off();
+        $('.oe_web_client').off();
+        $('.openerp_webclient_container').off();
+    },
+
+    build_chrome: function() { 
+        var self = this;
+        FastClick.attach(document.body);
+        core.bus.trigger('set_full_screen', true);
+
+        this.renderElement();
+
+        this.$('.pos-logo').click(function(){
+            self.click_logo();
+        });
+
+        if(this.pos.config.iface_big_scrollbars){
+            this.$el.addClass('big-scrollbars');
+        }
+    },
+
+    // displays a system error with the error-traceback
+    // popup.
+    show_error: function(error) {
+        this.gui.show_popup('error-traceback',{
+            'title': error.message,
+            'body':  error.message + '\n' + error.data.debug + '\n',
+        });
+    },
+
+    // replaces the error handling of the existing crashmanager which
+    // uses jquery dialog to display the error, to use the pos popup
+    // instead
+    replace_crashmanager: function() {
+        var self = this;
+        CrashManager.include({
+            show_error: function(error) {
+                if (self.gui) {
+                    self.show_error(error);
+                } else {
+                    this._super(error);
+                }
+            },
+        });
+    },
+
+    click_logo: function() {
+        if (this.pos.debug) {
+            this.widget.debug.show();
+        } else {
+            var self  = this;
+            var time  = (new Date()).getTime();
+            var delay = 500;
+            if (this.logo_click_time + 500 < time) {
+                this.logo_click_time  = time;
+                this.logo_click_count = 1;
+            } else {
+                this.logo_click_time  = time;
+                this.logo_click_count += 1;
+                if (this.logo_click_count >= 6) {
+                    this.logo_click_count = 0;
+                    this.gui.sudo().then(function(){
+                        self.widget.debug.show();
+                    });
+                }
+            }
+        }
+    },
+
+    disable_rubberbanding: function(){
+        // prevent the pos body from being scrollable. 
+        document.body.addEventListener('touchmove',function(event){
+            var node = event.target;
+            while(node){
+                if(node.classList && node.classList.contains('touch-scrollable')){
+                    return;
+                }
+                node = node.parentNode;
+            }
+            event.preventDefault();
+        });
+    },
+
+    // prevent backspace from performing a 'back' navigation
+    disable_backpace_back: function() {
+       $(document).on("keydown", function (e) {
+           if (e.which === 8 && !$(e.target).is("input, textarea")) {
+               e.preventDefault();
+           }
+       });
+    },
+
+    loading_error: function(err){
+        var self = this;
+
+        var title = err.message;
+        var body  = err.stack;
+
+        if(err.message === 'XmlHttpRequestError '){
+            title = 'Network Failure (XmlHttpRequestError)';
+            body  = 'The Point of Sale could not be loaded due to a network problem.\n Please check your internet connection.';
+        }else if(err.message === 'OpenERP Server Error'){
+            title = err.data.message;
+            body  = err.data.debug;
+        }
+
+        if( typeof body !== 'string' ){
+            body = 'Traceback not available.';
+        }
+
+        var popup = $(QWeb.render('ErrorTracebackPopupWidget',{
+            widget: { options: {title: title , body: body }},
+        }));
+
+        popup.find('.button').click(function(){
+            self.gui.close();
+        });
+
+        popup.css({ zindex: 9001 });
+
+        popup.appendTo(this.$el);
+    },
+    loading_progress: function(fac){
+        this.$('.loader .loader-feedback').removeClass('oe_hidden');
+        this.$('.loader .progress').removeClass('oe_hidden').css({'width': ''+Math.floor(fac*100)+'%'});
+    },
+    loading_message: function(msg,progress){
+        this.$('.loader .loader-feedback').removeClass('oe_hidden');
+        this.$('.loader .message').text(msg);
+        if (typeof progress !== 'undefined') {
+            this.loading_progress(progress);
+        } else {
+            this.$('.loader .progress').addClass('oe_hidden');
+        }
+    },
+    loading_skip: function(callback){
+        if(callback){
+            this.$('.loader .loader-feedback').removeClass('oe_hidden');
+            this.$('.loader .button.skip').removeClass('oe_hidden');
+            this.$('.loader .button.skip').off('click');
+            this.$('.loader .button.skip').click(callback);
+        }else{
+            this.$('.loader .button.skip').addClass('oe_hidden');
+        }
+    },
+    loading_hide: function(){
+        var self = this;
+        this.$('.loader').animate({opacity:0},1500,'swing',function(){self.$('.loader').addClass('oe_hidden');});
+    },
+    loading_show: function(){
+        this.$('.loader').removeClass('oe_hidden').animate({opacity:1},150,'swing');
+    },
+    widgets: [
+        {
+            'name':   'order_selector',
+            'widget': OrderSelectorWidget,
+            'replace':  '.placeholder-OrderSelectorWidget',
+        },{
+            'name':   'proxy_status',
+            'widget': ProxyStatusWidget,
+            'append':  '.pos-rightheader',
+            'condition': function(){ return this.pos.config.use_proxy; },
+        },{
+            'name':   'notification',
+            'widget': SynchNotificationWidget,
+            'append':  '.pos-rightheader',
+        },{
+            'name':   'close_button',
+            'widget': HeaderButtonWidget,
+            'append':  '.pos-rightheader',
+            'args': {
+                label: _t('Close'),
+                action: function(){ 
+                    var self = this;
+                    if (!this.confirmed) {
+                        this.$el.addClass('confirm');
+                        this.$el.text(_t('Confirm'));
+                        this.confirmed = setTimeout(function(){
+                            self.$el.removeClass('confirm');
+                            self.$el.text(_t('Close'));
+                            self.confirmed = false;
+                        },2000);
+                    } else {
+                        clearTimeout(this.confirmed);
+                        this.gui.close();
+                    }
+                },
+            }
+        },{
+            'name':   'username',
+            'widget': UsernameWidget,
+            'replace':  '.placeholder-UsernameWidget',
+        },{
+            'name':  'keyboard',
+            'widget': keyboard.OnscreenKeyboardWidget,
+            'replace': '.placeholder-OnscreenKeyboardWidget',
+        },{
+            'name':  'debug',
+            'widget': DebugWidget,
+            'append': '.pos-content',
+        },
+    ],
+
+    // This method instantiates all the screens, widgets, etc. 
+    build_widgets: function() {
+        var classe;
+
+        for (var i = 0; i < this.widgets.length; i++) {
+            var def = this.widgets[i];
+            if ( !def.condition || def.condition.call(this) ) {
+                var args = typeof def.args === 'function' ? def.args(this) : def.args;
+                var w = new def.widget(this, args || {});
+                if (def.replace) {
+                    w.replace(this.$(def.replace));
+                } else if (def.append) {
+                    w.appendTo(this.$(def.append));
+                } else if (def.prepend) {
+                    w.prependTo(this.$(def.prepend));
+                } else {
+                    w.appendTo(this.$el);
+                }
+                this.widget[def.name] = w;
+            }
+        }
+
+        this.screens = {};
+        for (i = 0; i < this.gui.screen_classes.length; i++) {
+            classe = this.gui.screen_classes[i];
+            if (!classe.condition || classe.condition.call(this)) {
+                var screen = new classe.widget(this,{});
+                    screen.appendTo(this.$('.screens'));
+                this.screens[classe.name] = screen;
+                this.gui.add_screen(classe.name, screen);
+            }
+        }
+
+        this.popups = {};
+        for (i = 0; i < this.gui.popup_classes.length; i++) {
+            classe = this.gui.popup_classes[i];
+            if (!classe.condition || classe.condition.call(this)) {
+                var popup = new classe.widget(this,{});
+                    popup.appendTo(this.$('.popups'));
+                this.popups[classe.name] = popup;
+                this.gui.add_popup(classe.name, popup);
+            }
+        }
+
+        this.gui.set_startup_screen('products');
+        this.gui.set_default_screen('products');
+
+    },
+
+    destroy: function() {
+        this.pos.destroy();
+        core.bus.trigger('set_full_screen', false);
+        this._super();
+    }
+});
+});
+
