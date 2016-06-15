@@ -38,7 +38,7 @@ To display Time in Point of Sale which shall be configured at Pos Config for 12/
     'website': 'http://www.credativ.in',
     'sequence':0,
     'depends': ['base', 'web', 'point_of_sale'],
-    'images':['images/main_screenshot.png'],
+    'images':['main_screenshot.png'],
     'data': [
         'pos_view.xml',
     ],
