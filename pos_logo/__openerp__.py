@@ -21,7 +21,7 @@
 
 
 {
-    'name': 'Point of Sale Logo and Time',
+    'name': 'Point of Sale (pos) Logo and Time',
     'category': 'Point Of Sale', 
     'version': '1.0',
     'description': """
