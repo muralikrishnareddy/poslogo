@@ -7,6 +7,13 @@ openerp.pos_logo = function(instance){
        start: function() {
             var self = this;
             return self.pos.ready.done(function() {
+                if ($.browser.chrome) {
+                    var chrome_version = $.browser.version.split('.')[0];
+                    if (parseInt(chrome_version, 10) >= 50) {
+                        openerp.loadCSS('/point_of_sale/static/src/css/chrome50.css');
+                    }
+                }
+
                 // remove default webclient handlers that induce click delay
                 $(document).off();
                 $(window).off();
@@ -17,7 +24,7 @@ openerp.pos_logo = function(instance){
                 $('.oe_web_client').off();
                 $('.openerp_webclient_container').off();
 
-                self.build_currency_template();
+
                 self.renderElement();
                 
                 self.$('.neworder-button').click(function(){
@@ -63,6 +70,8 @@ openerp.pos_logo = function(instance){
                 instance.webclient.set_content_full_screen(true);
 
                 self.$('.loader').animate({opacity:0},1500,'swing',function(){self.$('.loader').addClass('oe_hidden');});
+                
+                instance.web.cordova.send('posready');
 
                 self.pos.push_order();
                 var $image = self.$('#image');
